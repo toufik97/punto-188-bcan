@@ -1,0 +1,88 @@
+VERSION ""
+
+NS_ :
+	NS_DESCR_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_: Vector__XXX
+
+CM_ "Fiat Punto 188 (Mk2) 1.2 8V Fire — B-CAN 50 kbps, 11-bit IDs, listen-only reverse engineered 2026-11-21/22, ESP32-S3 + OBD-II K-Line cross-check. Transmitters not asserted (Vector__XXX throughout). 0x0C6/0x0C7 intentionally excluded: UDS-style visitors, suspected diagnostic-tool traffic, never native. Open items: 0DD.b4 exact law (load proxy, r~0.84 vs 0104), 0E5.b3 fast unknown byte, fuel scale +-5 pending brim fill, warning-lamp bits (all dark bytes) pending key-on bulb-check capture.";
+
+BO_ 221 Punto_Engine: 7 Vector__XXX
+ SG_ RPM : 40|16@1+ (0.125,0) [0|8000] "rpm" Vector__XXX
+ SG_ Coolant : 16|8@1+ (1,-40) [-40|215] "degC" Vector__XXX
+ SG_ LoadRaw : 32|8@1+ (1,0) [0|255] "" Vector__XXX
+CM_ SG_ 221 LoadRaw "0DD.b4, 0-10 observed; correlates with OBD load best (r~0.84). Exact law TBD.";
+
+BO_ 240 Punto_Body: 8 Vector__XXX
+ SG_ Handbrake : 5|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ DoorDrv : 10|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ DoorPsg : 11|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ DoorRearLeft : 12|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ DoorRearRight : 13|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ BootOpen : 14|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ FuelSender : 40|8@1+ (1,0) [0|100] "percent" Vector__XXX
+CM_ SG_ 240 FuelSender "Provisional scale ~percent: 24-27 quarter tank, 43-48 half tank, monotonic rise during fill, leads the damped cluster gauge. Confirm with brim fill (expect ~95-100).";
+
+BO_ 229 Punto_Speed: 4 Vector__XXX
+ SG_ Speed : 7|16@0+ (0.1,0) [0|300] "kmh" Vector__XXX
+ SG_ UnknownB3 : 24|8@1+ (1,0) [0|255] "" Vector__XXX
+CM_ SG_ 229 UnknownB3 "Fast-moving, uncorrelated with RPM/throttle/load/MAP. Checksum or advance candidate.";
+
+BO_ 207 Punto_Lights: 6 Vector__XXX
+ SG_ FootBrake : 7|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ LightFog : 9|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ LightLow : 11|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ LightHigh : 12|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ LightPosA : 13|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ LightPosB : 14|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Defog : 20|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ BlinkRight : 21|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ BlinkLeft : 22|1@1+ (1,0) [0|1] "" Vector__XXX
+CM_ SG_ 207 LightPosA "b1 usually 0x60 with sidelights (bits 5+6). Why two bits is unknown; both always move together.";
+CM_ SG_ 207 BlinkRight "Inferred from hazard 0x60 minus proven left 0x40, then file-confirmed 2026-11-22.";
+
+BO_ 243 Punto_HandbrakeEcho: 3 Vector__XXX
+ SG_ Handbrake : 5|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 242 Punto_Buttons: 1 Vector__XXX
+ SG_ City : 5|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1792 Punto_Static0: 4 Vector__XXX
+CM_ BO_ 1792 "Frozen payload observed: 00 1E/0E 00 0F. b1 bit4 tracks stalk lights (0x1E off / 0x0E on). Rest static — PROXI/config suspected.";
+
+BO_ 1793 Punto_Static1: 2 Vector__XXX
+CM_ BO_ 1793 "Frozen payload observed: 00 06.";
+
+BO_ 1794 Punto_Static2: 2 Vector__XXX
+CM_ BO_ 1794 "Frozen payload observed: 00 06.";
+
+BO_ 1795 Punto_Static3: 2 Vector__XXX
+CM_ BO_ 1795 "Frozen payload observed: 00 1E.";
