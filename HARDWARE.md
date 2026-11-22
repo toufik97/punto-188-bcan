@@ -53,7 +53,7 @@ no extra libraries — BLE stack ships with the core):
   never transmit** — safety by construction, verify with `grep -n
   "sendMsgBuf\|twai_transmit" firmware/esp32-can-logger/*.ino` (no hits).
 - WiFi AP `PUNTO-CAN` / `punto1234`, live page at `http://192.168.4.1`
-  (20 Hz CAN view, 150 → now 90 ms browser poll), `/csv` merged log,
+  (live 20 Hz CAN view, ~90 ms browser poll), `/csv` merged log,
   `/candump` for `can-utils`.
 - Decimated logging: 1 snapshot/ID/s (static IDs slower), any payload change
   logged immediately (min 200 ms floor). Same 4000-ring, ~7 min coverage;

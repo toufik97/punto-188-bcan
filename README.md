@@ -44,14 +44,29 @@ captures/                    37 raw capture logs (merged CAN+OBD schema)
 1. **Wire it** — see [HARDWARE.md](HARDWARE.md). TL;DR: cluster connector
    CAN pair → SN65HVD230 (GPIO4/5, 120R jumper **OFF**) → ESP32-S3.
    Read [SAFETY.md](SAFETY.md) first — a transmitter on this bus can strand the car.
-2. **Flash it** (arduino-cli + ESP32 core 4.x):
-   ```
-   cd firmware/esp32-can-logger
-   arduino-cli compile -b esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app .
-   arduino-cli upload -b esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app -p /dev/ttyACM0 .
-   ```
-   If the board sits in download mode afterwards, open the serial port once —
-   that resets it into the app.
+2. **Flash it** — Arduino IDE *or* `arduino-cli`, ESP32 core 4.x:
+   - **Arduino IDE:** install the ESP32 core (Boards Manager URL:
+     `https://espressif.github.io/arduino-esp32/package_esp32_index.json`),
+     open `firmware/esp32-can-logger/esp32-can-logger.ino`, select
+     **ESP32S3 Dev Module**, then in the Tools menu set
+     **USB CDC On Boot: Enabled** and **Partition Scheme: Huge APP
+     (3MB No OTA)**. Pick your board's serial port (below) and Upload.
+   - **arduino-cli:**
+     ```
+     cd firmware/esp32-can-logger
+     FQBN=esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app
+     arduino-cli compile -b $FQBN .
+     arduino-cli upload -b $FQBN -p <YOUR_PORT> .
+     ```
+   - **Finding `<YOUR_PORT>`:**
+     - Windows: a `COMx` port (e.g. `COM5`) — check Device Manager →
+       Ports, or watch which new port appears when you plug the board in.
+     - macOS: `/dev/cu.usbmodemXXXX` (native USB) or `/dev/cu.SLAB_USBtoUART`
+       / `/dev/cu.wchusbserial*` (external UART chip, needs its driver).
+     - Linux: `/dev/ttyACM0` (native USB) or `/dev/ttyUSB0` (UART chip);
+       add your user to the `dialout` group if permission is denied.
+   - If the board sits in download mode afterwards, open the serial monitor
+     once — that resets it into the app.
 3. **Capture**: join WiFi `PUNTO-CAN` / `punto1234`, open `http://192.168.4.1`,
    `Start` → do one thing → `Stop` → download. `/start?slow=1` = marathon mode.
 4. **Decode**:
