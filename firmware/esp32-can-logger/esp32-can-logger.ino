@@ -77,19 +77,22 @@ static void logPush(const Frame& f) {
   if (count < RING_N) count++;
 }
 
-// Live CAN decode for 1.2 8V — laws locked 2026-11-22 by revved+driving OBD runs.
-// RPM = 0DD LE16(b6:b5)/8 (exact-fit RMSE ≈ free fit). Coolant = 0DD.b2-40.
-// Speed = 0E5 bytes 0:1 BE/10 (r=0.99 vs 010D 0-41 km/h).
-// Fuel = 0F0.b5 sender-side (fill test: monotonic rise + step to mid-40s; scale ~percent, ±5 pending).
+// Live CAN decode for 1.2 8V - laws locked by revved+driving OBD runs.
+// RPM = 0DD.b6 * 32   (same law as the 1.4 16V "byte 6 = rpm/32"; fits 010C on par
+//                      or better than a 16-bit b6:b5 read, and b5 is a separate byte)
+// Coolant = 0DD.b2 - 40.  Speed = 0E5 b0:b1 BE / 10.  Fuel = 0F0.b5 (~percent, +-5).
+// ENGINE ON = RPM > 0. Do NOT use 0DD.b0/b1 == 0: it also appears at key-on with
+// the engine stopped (0x80 0x10 = engine off). Positive state: 0F0.b2 == 0x40.
 // Proven: CITY=0F2.b0 bit0x20; doors 0F0.b1: 0x04/0x08/0x10/0x20/0x40; handbrake 0F0.b0+F3.b0 bit0x20;
-// foot brake 0CF.b0 bit0x80; lights 0CF.b1 ladder; blinkers 0CF.b2 0x40 L / 0x20 R (file-proven); defog 0CF.b2 bit0x10.
-#define RPM_DIV 8.0f
-static float liveRpm = 0;        // 0DD LE16(b6:b5)/8
+// foot brake 0CF.b0 bit0x80; lights 0CF.b1 ladder; blinkers 0CF.b2 0x40 L / 0x20 R; defog bit0x10;
+// engine state ladder 0F0.b2: 0x10 asleep -> 0x48 key-on/engine-off -> 0xC8 cranking -> 0x40 running.
+#define RPM_FACTOR 32.0f
+static float liveRpm = 0;        // 0DD.b6 * 32
 static uint8_t liveCoolRaw = 0;  // 0DD.b2
 static float liveCoolEst = 0;    // 0DD.b2-40
 static float liveSpeedCan = -1;  // 0E5 (b0<<8|b1)/10, -1 = no drive data yet
 static int liveFuel = -1;        // 0F0.b5 sender units (~percent)
-static uint8_t liveLoad = 0;     // 0DD.b4 raw (watch)
+static uint8_t liveLoad = 0;     // 0DD.b4 raw (watch; suspected hi byte of b4:b5 injection)
 static bool liveCity = false;    // 0F2.b0 bit 0x20 (proven)
 static bool liveDoorDrv = false; // 0F0.b1 bit 0x04 (proven)
 static bool liveDoorPsg = false; // 0F0.b1 bit 0x08 (proven)
@@ -101,7 +104,9 @@ static bool liveFootBrake = false; // 0CF.b0 bit 0x80 (proven both directions)
 static bool liveBlinkL = false;  // 0CF.b2 bit 0x40 (proven, flashes at blink rate)
 static bool liveBlinkR = false;  // 0CF.b2 bit 0x20 (proven by retest file 2026-11-22)
 static bool liveDefog = false;   // 0CF.b2 bit 0x10 (proven on->off)
-static bool liveEngOn = false;   // 0DD live format (b0=b1=0) vs frozen 80 10 (key-on, engine off)
+static bool liveEngOn = false;   // RPM > 0 (0F0.b2 == 0x40 is the positive state flag)
+static bool liveIgnOn = false;   // 0F0.b2 bit 0x40
+static bool liveCranking = false; // 0F0.b2 bit 0x80
 static char liveLights[20] = "?"; // decoded 0CF.b1: OFF/POS/LOW/HIGH/FOG combos
 static uint8_t liveF0B0 = 0, liveF0B5 = 0;
 static uint8_t liveCFB0 = 0, liveF3B0 = 0, liveE5B3 = 0;
@@ -125,11 +130,11 @@ static float coolToC(uint8_t raw) { return raw - 40.0f; }
 
 static void decodeGuess(uint32_t id, uint8_t* d, uint8_t dlc) {
   if (id == 0x0DD && dlc >= 7) {
-    liveRpm = ((d[6] << 8) | d[5]) / RPM_DIV;
+    liveRpm = d[6] * RPM_FACTOR;
     liveCoolRaw = d[2];
     liveCoolEst = coolToC(d[2]);
     liveLoad = d[4];
-    liveEngOn = (d[0] == 0x00 && d[1] == 0x00); // frozen 80 10 xx.. = engine off
+    liveEngOn = d[6] > 0; // RPM = b6*32, so RPM > 0 iff b6 > 0
   }
   if (id == 0x0F2 && dlc >= 1) liveCity = (d[0] & 0x20) != 0;
   if (id == 0x0F0 && dlc >= 6) {
@@ -140,6 +145,8 @@ static void decodeGuess(uint32_t id, uint8_t* d, uint8_t dlc) {
     liveDoorRr = (d[1] & 0x20) != 0;
     liveBoot = (d[1] & 0x40) != 0;
     liveFuel = d[5]; // sender units (~percent, fill-test proven)
+    liveIgnOn = (d[2] & 0x40) != 0;   // 0F0.b2 bit 0x40
+    liveCranking = (d[2] & 0x80) != 0; // 0F0.b2 bit 0x80
     liveF0B0 = d[0];
     liveF0B5 = d[5];
   }
@@ -637,7 +644,7 @@ button{background:#1f262e;color:#e6edf3;border:1px solid #30363d;padding:8px 12p
 pre{background:#0d1117;padding:6px;white-space:pre-wrap;word-break:break-all;font-size:12px}
 .row{display:flex;flex-wrap:wrap;gap:4px 14px}
 </style>
-<h2>PUNTO CAN v0.10.1 dash</h2>
+<h2>PUNTO CAN v0.11 dash</h2>
 <div class=sec><h3>DRIVE</h3><div class=row>
 <div>RPM <span class=big id=r>0</span> <span id=or></span></div>
 <div>SPEED <span class=mid id=cs>-</span> <span id=os></span> km/h</div>
@@ -682,7 +689,7 @@ document.getElementById('oc').textContent=r.obd_cool<-900?'-':(+r.obd_cool).toFi
 document.getElementById('cs').textContent=r.can_spd<0?'-':(+r.can_spd).toFixed(0);
 document.getElementById('os').textContent=r.obd_spd<0?'':'OBD '+(+r.obd_spd).toFixed(0);
 document.getElementById('fu').textContent=r.fuel<0?'-':(+r.fuel).toFixed(0);
-document.getElementById('eng').textContent=r.eng?'ENG-ON':'eng-off';
+document.getElementById('eng').textContent=r.eng?'ENG-ON':(r.crank?'CRANK':(r.ign?'IGN-ON':'off'));
 document.getElementById('ct').textContent=r.city?'CITY-ON':'off';
 document.getElementById('li').textContent=r.lights;
 T('bl',r.bl,r.bl?'***':'off');T('br',r.br,r.br?'***':'off');T('df',r.defog,r.defog?'ON':'off');
@@ -707,7 +714,7 @@ document.getElementById('l').textContent=r.last.join('\n');},90);
 void setup() {
   Serial.begin(115200);
   delay(1500);
-  Serial.println("PUNTO CAN v0.10.1 dash boot");
+  Serial.println("PUNTO CAN v0.11 dash boot");
   pinMode(48, OUTPUT);
   digitalWrite(48, HIGH);
   WiFi.mode(WIFI_AP);
@@ -784,14 +791,15 @@ void setup() {
     snprintf(e5, sizeof e5, "%02X", liveE5B3);
     uint32_t now = millis();
     char j[800];
-    snprintf(j, sizeof j, "{\"rpm\":%.0f,\"cool_raw\":%u,\"cool_est\":%.0f,\"can_spd\":%.0f,\"fuel\":%d,\"city\":%s,\"drv\":%s,\"psg\":%s,\"lr\":%s,\"rr\":%s,\"boot\":%s,\"hbrake\":%s,\"fbrake\":%s,\"bl\":%s,\"br\":%s,\"defog\":%s,\"eng\":%s,\"lights\":\"%s\",\"load\":%u,\"f0b0\":\"%s\",\"f0b5\":\"%s\",\"cfb0\":\"%s\",\"f3b0\":\"%s\",\"e5b3\":\"%s\",\"obd_rpm\":%.0f,\"obd_cool\":%.0f,\"obd_spd\":%.0f,\"obd_load\":%.0f,\"obd_map\":%.0f,\"obd_thr\":%.0f,\"obd_iat\":%.0f,\"obd_volt\":%.1f,\"obd_dtc\":%.0f,\"obd_mil\":%s,\"obd_age\":%lu,\"elm\":\"%s\",\"elminfo\":\"%s\",\"count\":%u,\"cap\":%u,\"elaps\":%lu,\"obd_n\":%u,\"capturing\":%s,\"last\":[",
+    snprintf(j, sizeof j, "{\"rpm\":%.0f,\"cool_raw\":%u,\"cool_est\":%.0f,\"can_spd\":%.0f,\"fuel\":%d,\"city\":%s,\"drv\":%s,\"psg\":%s,\"lr\":%s,\"rr\":%s,\"boot\":%s,\"hbrake\":%s,\"fbrake\":%s,\"bl\":%s,\"br\":%s,\"defog\":%s,\"eng\":%s,\"ign\":%s,\"crank\":%s,\"lights\":\"%s\",\"load\":%u,\"f0b0\":\"%s\",\"f0b5\":\"%s\",\"cfb0\":\"%s\",\"f3b0\":\"%s\",\"e5b3\":\"%s\",\"obd_rpm\":%.0f,\"obd_cool\":%.0f,\"obd_spd\":%.0f,\"obd_load\":%.0f,\"obd_map\":%.0f,\"obd_thr\":%.0f,\"obd_iat\":%.0f,\"obd_volt\":%.1f,\"obd_dtc\":%.0f,\"obd_mil\":%s,\"obd_age\":%lu,\"elm\":\"%s\",\"elminfo\":\"%s\",\"count\":%u,\"cap\":%u,\"elaps\":%lu,\"obd_n\":%u,\"capturing\":%s,\"last\":[",
              liveRpm, liveCoolRaw, liveCoolEst, liveSpeedCan, liveFuel, liveCity ? "true" : "false",
              liveDoorDrv ? "true" : "false", liveDoorPsg ? "true" : "false",
              liveDoorLr ? "true" : "false", liveDoorRr ? "true" : "false",
              liveBoot ? "true" : "false",
              liveHandbrake ? "true" : "false", liveFootBrake ? "true" : "false",
              liveBlinkL ? "true" : "false", liveBlinkR ? "true" : "false",
-             liveDefog ? "true" : "false", liveEngOn ? "true" : "false", liveLights,
+             liveDefog ? "true" : "false", liveEngOn ? "true" : "false",
+             liveIgnOn ? "true" : "false", liveCranking ? "true" : "false", liveLights,
              liveLoad,
              f0b0, f0b5, cf, f3, e5,
              obdRpm, obdCool, obdSpeed, obdLoad, obdMap, obdThr, obdIat, obdVolt, obdDtc,

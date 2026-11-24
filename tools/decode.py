@@ -5,6 +5,8 @@ Unified merged log from ESP32 /csv: t_ms,src,id,dlc,data
   OBD rows: src=OBD, id=010C|ATRV, dlc=0, data=decoded value (e.g. 816.5)
 Legacy split files (ms,id,dlc,b0..b7... / t_ms,pid,value) still read.
 
+Engine on is RPM > 0 (0DD.b6 > 0); 0DD.b0/b1 == 0 also occurs at key-on.
+
   python3 decode.py summary log.csv
   python3 decode.py bits base.csv test.csv       # what changed vs baseline
   python3 decode.py ref log.csv [obd.csv]        # auto-fit CAN formulas vs OBD
@@ -176,10 +178,17 @@ def cmd_ref(can_path, obd_path=None):
     for pid, pts in sorted(ref.items()):
         print(f"OBD {pid}: {len(pts)} pts range {min(v for _,v in pts):.1f}..{max(v for _,v in pts):.1f}")
 
+    # RPM = 0DD.b6 * 32 (same law as the 1.4 16V "byte 6 = rpm/32"). The 16-bit
+    # (b6<<8|b5)/8 read is algebraically b6*32 + b5/8; b5 is a separate byte, so
+    # the 8-bit law is reported as primary and the composite as a cross-check.
     rpm = _pairs(can, ref, '0DD',
-                 lambda r: (r['d'][6] << 8 | r['d'][5]) if r['dlc'] >= 7 else None, '0C')
-    _show_fit('RPM  0DD(b6:b5)', rpm, 'rpm',
-              exact=lambda p: _exact_rmse(p, 1 / 8, 0) if p else float('nan'))
+                 lambda r: r['d'][6] * 32 if r['dlc'] >= 7 else None, '0C')
+    _show_fit('RPM  0DD.b6*32', rpm, 'rpm',
+              exact=lambda p: _exact_rmse(p, 1.0, 0) if p else float('nan'))
+    rpm16 = _pairs(can, ref, '0DD',
+                   lambda r: ((r['d'][6] << 8) | r['d'][5]) / 8 if r['dlc'] >= 7 else None, '0C')
+    _show_fit('RPM  0DD(b6:b5)/8 [x-check]', rpm16, 'rpm',
+              exact=lambda p: _exact_rmse(p, 1.0, 0) if p else float('nan'))
     cool = _pairs(can, ref, '0DD',
                   lambda r: r['d'][2] if r['dlc'] >= 3 else None, '05')
     _show_fit('COOL 0DD.b2    ', cool, 'C',

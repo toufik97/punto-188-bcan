@@ -22,7 +22,12 @@ that does not appear on the 1.2 8V at all.
 | Foot brake | `0CF.b0` bit 0x80 | |
 | Lights | `0CF.b1` ladder | `00` off, `60` pos, `68` low, `78` high, `6A` fog |
 | Blinkers / hazard / defog | `0CF.b2` | `0x40` L, `0x20` R, `0x60` both, `0x10` defog |
-| Load (proxy) | `0DD.b4` | 0–10 buckets, correlates with OBD load (exact law TBD) |
+| Ignition/engine state | `0F0.b2` | `0x10` asleep, `0x48` key-on, `0xC8` cranking, `0x40` running |
+| Bus awake | `0E5.b2` | bit `0x40` |
+| Load (proxy) | `0DD.b4` | raw high byte, correlates with OBD load (law TBD) |
+
+**Engine on = RPM > 0** (not `0DD.b0/b1 == 0`, which also appears at key-on).
+Key-on handshake `740`/`743` documented; its payload is unverified.
 
 Unknown / watch: `0E5.b3` (fast, uncorrelated), `0F0.b6` (constant `0x0D`),
 warning-lamp bits (all dark so far — see `docs/FINDINGS.md`). Reverse lamp and
@@ -36,7 +41,8 @@ tools/decode.py              CLI decoder + correlator (stdlib only)
 tools/test_*.py              17 unit tests (no pip needed)
 dbc/punto_188_8v.dbc         the map, machine-readable
 docs/FINDINGS.md             full decode diary with evidence
-captures/                    37 raw capture logs (merged CAN+OBD schema)
+captures/                    40 raw capture logs (merged CAN+OBD schema)
+captures/keyon/              key-off -> key-on -> engine-start (handshake evidence)
 ```
 
 ## Quick start

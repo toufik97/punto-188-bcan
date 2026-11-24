@@ -8,8 +8,11 @@ import os
 import re
 import unittest
 
-DBC = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                   '..', 'dbc', 'punto_188_8v.dbc'))
+_here = os.path.dirname(os.path.abspath(__file__))
+_cands = [os.path.join(_here, '..', 'dbc', 'punto_188_8v.dbc'),  # repo layout
+          os.path.join(_here, 'punto_188_8v.dbc')]              # flat workbench
+DBC = next((os.path.normpath(p) for p in _cands if os.path.exists(p)),
+           os.path.normpath(_cands[0]))
 
 BO_RE = re.compile(r'^BO_\s+(\d+)\s+(\w+):\s+(\d+)\s+(\w+)')
 SG_RE = re.compile(r'^\s*SG_\s+(\w+)\s*:\s*(\d+)\|(\d+)@([01])([+-])'
@@ -82,7 +85,39 @@ class TestDbc(unittest.TestCase):
 
     def test_expected_ids(self):
         self.assertEqual(set(self.m),
-                         {221, 240, 229, 207, 243, 242, 1792, 1793, 1794, 1795})
+                         {221, 240, 229, 207, 243, 242, 1792, 1793, 1794, 1795,
+                          1856, 1859})
+
+    def test_handshake_ids_present(self):
+        self.assertEqual(self.m[1856]['dlc'], 0)
+        self.assertEqual(self.m[1859]['dlc'], 6)
+        self.assertEqual(self.m[1859]['sigs'], [])  # payload unverified
+
+    def test_rpm_is_8bit_b6(self):
+        # b6 only: 0x19 -> 25 * 32 = 800 rpm (b5 must not contribute)
+        lo = decode(self.m, 221, [0x00, 0x00, 0x72, 0x00, 0x01, 0x00, 0x19, 0x00])
+        hi = decode(self.m, 221, [0x00, 0x00, 0x72, 0x00, 0x01, 0xFF, 0x19, 0x00])
+        self.assertAlmostEqual(lo['RPM'], 800.0)
+        self.assertAlmostEqual(hi['RPM'], 800.0)  # b5 irrelevant
+
+    def test_engine_state_ladder(self):
+        # 0F0.b2: 0x10 asleep / 0x48 key-on-engine-off / 0xC8 cranking / 0x40 running
+        cases = {
+            0x10: (1, 0, 0, 0),  # asleep, no ignition
+            0x48: (0, 1, 1, 0),  # engine stopped, ignition on
+            0xC8: (0, 1, 1, 1),  # cranking (bit3 still set: engine not yet running)
+            0x40: (0, 0, 1, 0),  # running
+        }
+        for b2, (asleep, stopped, ign, crank) in cases.items():
+            v = decode(self.m, 240, [0x00, 0x80, b2, 0x00, 0x00, 0x2A, 0x0D, 0x00])
+            self.assertEqual(v['StandbyAsleep'], asleep, hex(b2))
+            self.assertEqual(v['EngineStopped'], stopped, hex(b2))
+            self.assertEqual(v['IgnitionOn'], ign, hex(b2))
+            self.assertEqual(v['Cranking'], crank, hex(b2))
+
+    def test_bus_awake(self):
+        self.assertEqual(decode(self.m, 229, [0, 0, 0x00, 0x23])['BusAwake'], 0)
+        self.assertEqual(decode(self.m, 229, [0, 0, 0x40, 0x23])['BusAwake'], 1)
 
     def test_no_diagnostic_visitors(self):
         self.assertNotIn(0x0C6, self.m)
@@ -99,7 +134,7 @@ class TestDbc(unittest.TestCase):
     def test_rpm_coolant_idle(self):
         # real idle frame: 0DD 00 00 72 00 01 E6 19 (OBD said ~816 rpm, ~74 C)
         v = decode(self.m, 221, [0x00, 0x00, 0x72, 0x00, 0x01, 0xE6, 0x19])
-        self.assertAlmostEqual(v['RPM'], 6630 / 8)
+        self.assertAlmostEqual(v['RPM'], 0x19 * 32)  # b6*32 = 800
         self.assertAlmostEqual(v['Coolant'], 0x72 - 40)
         self.assertEqual(v['LoadRaw'], 1)
 
