@@ -15,7 +15,7 @@ Engine on is RPM > 0 (0DD.b6 > 0); 0DD.b0/b1 == 0 also occurs at key-on.
 import argparse, csv, math
 from collections import defaultdict
 
-DIAG_IDS = {'0C6', '0C7'}  # diagnostic visitors — never native traffic
+DIAG_IDS = {'0C6', '0C7'}  # Fiat CODE immobilizer keepalive, never drive signals
 
 def _is_merged(fieldnames):
     return fieldnames and 'src' in fieldnames and 'data' in fieldnames
@@ -179,8 +179,9 @@ def cmd_ref(can_path, obd_path=None):
         print(f"OBD {pid}: {len(pts)} pts range {min(v for _,v in pts):.1f}..{max(v for _,v in pts):.1f}")
 
     # RPM = 0DD.b6 * 32 (same law as the 1.4 16V "byte 6 = rpm/32"). The 16-bit
-    # (b6<<8|b5)/8 read is algebraically b6*32 + b5/8; b5 is a separate byte, so
-    # the 8-bit law is reported as primary and the composite as a cross-check.
+    # (b6<<8|b5)/8 read is algebraically b6*32 + b5/8; b5 is the LOW BYTE of the
+    # 16-bit BE FuelInjectionPulse (b4:b5), so the 8-bit law stays primary and
+    # the composite is reported as a cross-check only.
     rpm = _pairs(can, ref, '0DD',
                  lambda r: r['d'][6] * 32 if r['dlc'] >= 7 else None, '0C')
     _show_fit('RPM  0DD.b6*32', rpm, 'rpm',
@@ -194,7 +195,8 @@ def cmd_ref(can_path, obd_path=None):
     _show_fit('COOL 0DD.b2    ', cool, 'C',
               exact=lambda p: _exact_rmse(p, 1.0, -40) if p else float('nan'))
 
-    # load/state byte vs K-line load signals
+    # load/state byte vs K-line load signals (b4 is the HIGH byte of the
+    # FuelInjectionPulse b4:b5 pair; DFCO drops the pair to 0x0000)
     for pid, nm in (('04', 'LOAD'), ('0B', 'MAP '), ('11', 'THR ')):
         _show_fit(f'B4 vs {nm} 0DD.b4',
                   _pairs(can, ref, '0DD',

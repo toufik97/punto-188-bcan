@@ -94,11 +94,12 @@ class TestDbc(unittest.TestCase):
         self.assertEqual(self.m[1859]['sigs'], [])  # payload unverified
 
     def test_rpm_is_8bit_b6(self):
-        # b6 only: 0x19 -> 25 * 32 = 800 rpm (b5 must not contribute)
+        # b6 only: 0x19 -> 25 * 32 = 800 rpm (b5 must not contribute: it is the
+        # low byte of FuelInjectionPulse, not the RPM low byte)
         lo = decode(self.m, 221, [0x00, 0x00, 0x72, 0x00, 0x01, 0x00, 0x19, 0x00])
         hi = decode(self.m, 221, [0x00, 0x00, 0x72, 0x00, 0x01, 0xFF, 0x19, 0x00])
-        self.assertAlmostEqual(lo['RPM'], 800.0)
-        self.assertAlmostEqual(hi['RPM'], 800.0)  # b5 irrelevant
+        self.assertAlmostEqual(lo['EngineRPM'], 800.0)
+        self.assertAlmostEqual(hi['EngineRPM'], 800.0)  # b5 irrelevant
 
     def test_engine_state_ladder(self):
         # 0F0.b2: 0x10 asleep / 0x48 key-on-engine-off / 0xC8 cranking / 0x40 running
@@ -134,9 +135,9 @@ class TestDbc(unittest.TestCase):
     def test_rpm_coolant_idle(self):
         # real idle frame: 0DD 00 00 72 00 01 E6 19 (OBD said ~816 rpm, ~74 C)
         v = decode(self.m, 221, [0x00, 0x00, 0x72, 0x00, 0x01, 0xE6, 0x19])
-        self.assertAlmostEqual(v['RPM'], 0x19 * 32)  # b6*32 = 800
+        self.assertAlmostEqual(v['EngineRPM'], 0x19 * 32)  # b6*32 = 800
         self.assertAlmostEqual(v['Coolant'], 0x72 - 40)
-        self.assertEqual(v['LoadRaw'], 1)
+        self.assertEqual(v['FuelInjectionPulse'], 0x01E6)  # b4:b5 BE
 
     def test_doors_fuel_handbrake(self):
         # driver door open, handbrake on, fuel 0x1C
@@ -166,6 +167,29 @@ class TestDbc(unittest.TestCase):
         self.assertEqual(v['BlinkRight'], 1)
         self.assertEqual(v['BlinkLeft'], 0)
         self.assertEqual(v['Defog'], 0)
+
+    def test_warning_lamps(self):
+        # key-on/engine-off: battery (b0 bit7) + oil (b1 bit4) both set
+        v = decode(self.m, 221, [0x80, 0x10, 0x72, 0x00, 0x00, 0x00, 0x00])
+        self.assertEqual(v['BatteryChargeWarning'], 1)
+        self.assertEqual(v['OilPressureLowWarning'], 1)
+        # running: both clear, injection live
+        v = decode(self.m, 221, [0x00, 0x00, 0x72, 0x00, 0x02, 0xA4, 0x21])
+        self.assertEqual(v['BatteryChargeWarning'], 0)
+        self.assertEqual(v['OilPressureLowWarning'], 0)
+        self.assertEqual(v['FuelInjectionPulse'], 0x02A4)
+
+    def test_injection_dfco_zero(self):
+        # DFCO coast-in-gear: b4:b5 = 0x0000 while RPM reads high
+        v = decode(self.m, 221, [0x00, 0x00, 0x72, 0x00, 0x00, 0x00, 0x32])
+        self.assertEqual(v['FuelInjectionPulse'], 0)
+        self.assertAlmostEqual(v['EngineRPM'], 0x32 * 32)
+
+    def test_distance_counter(self):
+        # 0E5 b3 is the low byte: raw count, wraps mod 256
+        self.assertEqual(decode(self.m, 229, [0, 0, 0x40, 0x1C])['DistanceCounter'], 0x1C)
+        self.assertEqual(decode(self.m, 229, [0, 0, 0x40, 0xFF])['DistanceCounter'], 0xFF)
+        self.assertEqual(decode(self.m, 229, [0, 0, 0x40, 0x00])['DistanceCounter'], 0)
 
     def test_city_handbrake_echo(self):
         v = decode(self.m, 242, [0x28])

@@ -33,15 +33,19 @@ BS_:
 
 BU_: Vector__XXX
 
-CM_ "Fiat Punto 188 (Mk2) 1.2 8V Fire - B-CAN 50 kbps, 11-bit IDs. Listen-only reverse engineering 2026-11-21/25 (ESP32-S3 + OBD-II K-Line ground truth). Transmitters not asserted (Vector__XXX throughout): sniffing cannot prove who sends what. 0x0C6/0x0C7 intentionally excluded - UDS-style visitors, suspected diagnostic-tool traffic, never native. ENGINE ON = RPM > 0 (0DD.b0/b1 == 0 is NOT a valid engine-on test: it also appears transiently at key-on). Confirmed here only; unverified hypotheses (odometer candidate in 743, warning lamps, 0DD.b4:b5 injection, 0E5.b3, 702.b1) live in docs/FINDINGS.md - do not treat as signals.";
+CM_ "Fiat Punto 188 (Mk2) 1.2 8V Fire - B-CAN 50 kbps, 11-bit IDs. Listen-only reverse engineering 2026-11-21/25 (ESP32-S3 + OBD-II K-Line ground truth). Transmitters not asserted (Vector__XXX throughout): sniffing cannot prove who sends what. 0x0C6/0x0C7 intentionally have no BO_: Fiat CODE immobilizer challenge-response keepalive (key-ON + ~25 s period), excluded from decode. 0x743 has no signals: static PROXI handshake, NOT odometer (identical at 223387/223445/223450 km). ENGINE ON = RPM > 0 (0DD.b0/b1 == 0 is NOT a valid engine-on test: it also appears transiently at key-on). Confirmed signals only; residual hypotheses (fuel L/h scale, ABS/airbag fault flags, fuel percent scale) live in docs/FINDINGS.md - do not treat as signals.";
 
 BO_ 221 Punto_Engine: 7 Vector__XXX
- SG_ RPM : 48|8@1+ (32,0) [0|8160] "rpm" Vector__XXX
+ SG_ EngineRPM : 48|8@1+ (32,0) [0|8160] "rpm" Vector__XXX
  SG_ Coolant : 16|8@1+ (1,-40) [-40|215] "degC" Vector__XXX
- SG_ LoadRaw : 32|8@1+ (1,0) [0|255] "" Vector__XXX
-CM_ SG_ 221 RPM "0DD.b6 * 32. Equivalent to the 1.4 16V design (byte 6 = rpm, x32) and fits OBD 010C on par or better than a 16-bit b6:b5 read. Do NOT treat b5 as the RPM low byte - it is a separate byte (see FINDINGS injection hypothesis).";
+ SG_ BatteryChargeWarning : 7|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ OilPressureLowWarning : 12|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ FuelInjectionPulse : 39|16@0+ (1,0) [0|65535] "" Vector__XXX
+CM_ SG_ 221 EngineRPM "0DD.b6 * 32. Equivalent to the 1.4 16V design (byte 6 = rpm, x32) and fits OBD 010C on par or better than a 16-bit b6:b5 read. Do NOT treat b5 as the RPM low byte - it is the low byte of FuelInjectionPulse (see FINDINGS).";
 CM_ SG_ 221 Coolant "0DD.b2 - 40, exact-law RMSE 0.2-0.5C over 37-87C.";
-CM_ SG_ 221 LoadRaw "0DD.b4, raw high byte. 0-10 observed when read alone; correlates with OBD load (0104, r~0.84). Suspected high byte of a 16-bit injection/consumption field b4:b5 (unverified - see FINDINGS).";
+CM_ SG_ 221 BatteryChargeWarning "0DD.b0 bit7 (0x80): alternator/battery telltale. Set at key-on/engine-off; clears FIRST (~+0.64 s after first RPM>0), matching the physical cluster (battery lamp out before oil lamp).";
+CM_ SG_ 221 OilPressureLowWarning "0DD.b1 bit4 (0x10): oil-pressure telltale. Set at key-on/engine-off; clears SECOND (~+1.64 s after first RPM>0), matching the physical cluster.";
+CM_ SG_ 221 FuelInjectionPulse "0DD.b4:b5, 16-bit BE: fuel-injection pulse. 0 with engine off; drops to 0x0000 under DFCO coast-in-gear (731 frames at >=1600 rpm in drive_2_with_test3). Exact L/h scale pending full-tank fill-up.";
 
 BO_ 240 Punto_Body: 8 Vector__XXX
  SG_ Handbrake : 5|1@1+ (1,0) [0|1] "" Vector__XXX
@@ -60,13 +64,14 @@ CM_ SG_ 240 EngineStopped "0F0.b2 bit3 (0x08). Set at key-on while the engine is
 CM_ SG_ 240 IgnitionOn "0F0.b2 bit6 (0x40). Set at key-on (MAR) and stays set while running.";
 CM_ SG_ 240 Cranking "0F0.b2 bit7 (0x80). Verified to the millisecond against first RPM>0 in the key-on captures.";
 CM_ SG_ 240 FuelSender "Provisional scale ~percent: 24-27 quarter tank, 43-48 half tank, monotonic rise during fill, leads the damped cluster gauge. Brim-fill lock pending (expect ~95-100).";
+CM_ SG_ 240 Handbrake "0F0.b0 bit5 (0x20). Confirmed: clears cleanly on handbrake release while b0 bit3 (0x08, ABS fault) stays latched.";
 
 BO_ 229 Punto_Speed: 4 Vector__XXX
  SG_ Speed : 7|16@0+ (0.1,0) [0|300] "kmh" Vector__XXX
  SG_ BusAwake : 22|1@1+ (1,0) [0|1] "" Vector__XXX
- SG_ UnknownB3 : 24|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ DistanceCounter : 24|8@1+ (1,0) [0|255] "counts" Vector__XXX
 CM_ SG_ 229 BusAwake "0E5.b2 bit6 (0x40): 0x00 while the network is asleep, 0x40 once awake.";
-CM_ SG_ 229 UnknownB3 "Fast-moving, uncorrelated with RPM/throttle/load/MAP. Verified NOT a pure checksum of b0..b2 (non-deterministic from them alone while moving) yet constant 0x23 for 2000+ stationary frames. Unresolved - see FINDINGS.";
+CM_ SG_ 229 DistanceCounter "0E5.b3: rolling distance counter, strictly +1 mod 256. Increments even during 2-3 km/h creep while speed reads 0 km/h; ~6.15-6.25 m/tick over 168 moving ticks (odo 223445 -> 223450 km session). 8-bit: wraps every ~1.6 km; app must track wraps.";
 
 BO_ 207 Punto_Lights: 6 Vector__XXX
  SG_ FootBrake : 7|1@1+ (1,0) [0|1] "" Vector__XXX
@@ -83,6 +88,7 @@ CM_ SG_ 207 BlinkRight "File-confirmed 2026-11-22 (0x00<->0x20 at blink rate). H
 
 BO_ 243 Punto_HandbrakeEcho: 3 Vector__XXX
  SG_ Handbrake : 5|1@1+ (1,0) [0|1] "" Vector__XXX
+CM_ SG_ 243 Handbrake "0F3.b0 bit5 (0x20), echo of 0F0 Handbrake. Confirmed: clears on release while b0 bit7 (0x80, passenger-airbag fault) stays latched.";
 
 BO_ 242 Punto_Buttons: 1 Vector__XXX
  SG_ City : 5|1@1+ (1,0) [0|1] "" Vector__XXX
@@ -94,7 +100,7 @@ BO_ 1793 Punto_Nm1: 2 Vector__XXX
 CM_ BO_ 1793 "B-CAN NM heartbeat, only present while awake. b1 0x04 (asleep) -> 0x06 (awake). Static 00 06 otherwise.";
 
 BO_ 1794 Punto_Nm2: 2 Vector__XXX
-CM_ BO_ 1794 "B-CAN NM heartbeat. b1 was 0x06 on 2026-11-22 and 0x16 on 2026-11-24 - a single bit-4 flip. Suspected NM status bit or a slow counter (unverified - see FINDINGS watchlist).";
+CM_ BO_ 1794 "B-CAN NM heartbeat. b1 is 0x06 awake / 0x04 otherwise; bit 4 (0x10) is a transient NM status flag, NOT a cumulative counter (reverted to 0x04/0x06 in later sessions).";
 
 BO_ 1795 Punto_Nm3: 2 Vector__XXX
 CM_ BO_ 1795 "B-CAN NM heartbeat, also broadcast while asleep. b1 0x1A (asleep) -> 0x1E (awake).";
@@ -103,4 +109,4 @@ BO_ 1856 Punto_KeyOnPing: 0 Vector__XXX
 CM_ BO_ 1856 "One-shot zero-length frame at key-on, ~1 s after MAR, immediately preceding 0x743. Payload/meaning unverified.";
 
 BO_ 1859 Punto_KeyOnHandshake: 6 Vector__XXX
-CM_ BO_ 1859 "One-shot key-on handshake, fires ~1 s after MAR (1 ms after 0x740). Observed payload 46 76 89 95 AA A0 once per key cycle. Content NOT decoded - suspected central immobilizer/PROXI and/or odometer sync. Odometer candidate is a HYPOTHESIS only: see docs/FINDINGS.md watchlist.";
+CM_ BO_ 1859 "One-shot key-on handshake, fires ~1 s after MAR (1 ms after 0x740). Payload is CONSTANT 46 76 89 95 AA A0 across 223387 -> 223450 km: NOT odometer. Static PROXI / node-configuration handshake.";

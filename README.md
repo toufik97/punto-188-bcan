@@ -12,8 +12,12 @@ that does not appear on the 1.2 8V at all.
 
 | Signal | Source | Law |
 |---|---|---|
-| Engine RPM | `0DD` b6:b5 LE16 | `raw / 8` |
+| Engine RPM | `0DD.b6` | `raw × 32` |
 | Coolant temp | `0DD.b2` | `raw − 40` °C |
+| Battery telltale | `0DD.b0` bit 7 | clears first (~+0.64 s after start) |
+| Oil telltale | `0DD.b1` bit 4 | clears second (~+1.64 s after start) |
+| Injection pulse | `0DD.b4:b5` BE16 | DFCO-proven `0x0000`; L/h scale pending |
+| Distance counter | `0E5.b3` | `+1 mod 256` / ~6.2 m per tick (wrap-aware) |
 | Vehicle speed | `0E5` bytes 0:1 BE | `raw / 10` km/h |
 | Fuel sender | `0F0.b5` | ~percent, provisional ±5 (brim fill pending) |
 | Doors (4) + boot | `0F0.b1` bits | `04/08/10/20/40` |
@@ -24,24 +28,25 @@ that does not appear on the 1.2 8V at all.
 | Blinkers / hazard / defog | `0CF.b2` | `0x40` L, `0x20` R, `0x60` both, `0x10` defog |
 | Ignition/engine state | `0F0.b2` | `0x10` asleep, `0x48` key-on, `0xC8` cranking, `0x40` running |
 | Bus awake | `0E5.b2` | bit `0x40` |
-| Load (proxy) | `0DD.b4` | raw high byte, correlates with OBD load (law TBD) |
 
 **Engine on = RPM > 0** (not `0DD.b0/b1 == 0`, which also appears at key-on).
-Key-on handshake `740`/`743` documented; its payload is unverified.
+Key-on handshake `740`/`743` is a static PROXI / node-configuration handshake
+(byte-identical at 223,387 → 223,450 km — NOT odometer). `0C6`/`0C7` is the Fiat
+CODE immobilizer keepalive (~25 s period, key ON).
 
-Unknown / watch: `0E5.b3` (fast, uncorrelated), `0F0.b6` (constant `0x0D`),
-warning-lamp bits (all dark so far — see `docs/FINDINGS.md`). Reverse lamp and
-central locking show no B-CAN trace (hard-wired / off-bus).
+Unknown / watch: `0F0.b6` (constant `0x0D`), ABS/airbag fault flags, injection
+L/h scale, fuel percent scale (see `docs/FINDINGS.md`). Not on B-CAN: reverse
+lamp, central locking, beam-level dial, car radio, trip-reset button.
 
 ## Repo layout
 
 ```
 firmware/esp32-can-logger/   ESP32-S3 + SN65HVD230 listen-only logger + live dash
 tools/decode.py              CLI decoder + correlator (stdlib only)
-tools/test_*.py              17 unit tests (no pip needed)
+tools/test_*.py              24 unit tests (no pip needed)
 dbc/punto_188_8v.dbc         the map, machine-readable
 docs/FINDINGS.md             full decode diary with evidence
-captures/                    40 raw capture logs (merged CAN+OBD schema)
+captures/                    48 raw capture logs (merged CAN+OBD schema)
 captures/keyon/              key-off -> key-on -> engine-start (handshake evidence)
 ```
 
